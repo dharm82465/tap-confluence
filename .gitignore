@@ -136,3 +136,5 @@ dmypy.json
 .pyre/
 .meltano
 meltano.yml
+uv.lock
+.vscode/
