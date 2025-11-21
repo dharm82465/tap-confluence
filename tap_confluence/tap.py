@@ -8,11 +8,7 @@ from singer_sdk import Tap
 from singer_sdk import typing as th  # JSON schema typing helpers
 
 from tap_confluence.streams import (
-    BlogpostStream,
-    GroupStream,
-    PageStream,
-    SpaceStream,
-    ThemeStream,
+    ContentStream,
 )
 
 if sys.version_info >= (3, 12):
@@ -21,11 +17,7 @@ else:
     from typing_extensions import override
 
 STREAM_TYPES = [
-    BlogpostStream,
-    PageStream,
-    GroupStream,
-    SpaceStream,
-    ThemeStream,
+    ContentStream,
 ]
 
 class TapConfluence(Tap):
@@ -44,16 +36,26 @@ class TapConfluence(Tap):
             description="The token to authenticate against the API service",
         ),
         th.Property(
-            "start_date",
-            th.DateTimeType(nullable=True),
-            description="The earliest record date to sync",
-        ),
-        th.Property(
             "api_url",
             th.StringType(nullable=False),
             title="API URL",
             default="https://api.mysample.com",
             description="The url for the API service",
+        ),
+        th.Property(
+            "space_key",
+            th.StringType(nullable=True),
+            description="The space key to sync",
+        ),
+        th.Property(
+            "content_type",
+            th.StringType(nullable=True),
+            description="The content type to sync (either page or blogpost)",
+        ),
+        th.Property(
+            "start_date",
+            th.DateTimeType(nullable=True),
+            description="The earliest record date to sync",
         ),
     ).to_dict()
 

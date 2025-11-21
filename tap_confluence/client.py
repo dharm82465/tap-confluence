@@ -38,12 +38,16 @@ SCHEMAS_DIR = SchemaDirectory("./schemas")
 class NextPageTokenPaginator(BaseHATEOASPaginator):
     def get_next_url(self, response):
         links = response.json().get("_links")
-        next_url = f"{links.get('base')}{links.get('next')}"
+        next = links.get('next')
+        if not next:
+            return None
+        next_url = f"{links.get('base')}{next}"
         return next_url
 
 class ConfluenceStream(RESTStream):
     """Confluence stream class."""
 
+    path = "/content/search"
     limit: int = 10
     expand: List[str] = []
 
@@ -116,7 +120,17 @@ class ConfluenceStream(RESTStream):
         Returns:
             A dictionary of URL query parameters.
         """
-        params = {"expand": ",".join(self.expand)}
+        cql = []
+        if self.config.get("space_key"):
+            cql.insert(0, f"space={self.config.get('space_key')}")
+        if self.config.get("content_type"):
+            cql.insert(0, f"type={self.config.get('content_type')}")
+        if self.config.get("start_date"):
+            cql.insert(0, f"lastmodified >= '{self.config.get('start_date')}'")    
+        params = {
+            "expand": ",".join(self.expand),
+            "cql": f'{" AND ".join(cql)} ORDER BY lastmodified'
+        }
         if next_page_token:
             params.update(parse_qsl(next_page_token.query))
         return params
@@ -161,7 +175,7 @@ class ConfluenceStream(RESTStream):
         """Remove HTML tags and decode HTML entities."""
         if not html:
             return html
-        return simplify_html(BeautifulSoup(html, "lxml-xml"))
+        return simplify_html(BeautifulSoup(html, "html.parser"))
 
     @override
     def post_process(
@@ -183,8 +197,8 @@ class ConfluenceStream(RESTStream):
         """
         # TODO: Delete this method if not needed.
 
-        if row.get("homepage", {}).get("body", {}).get("storage", {}).get("value") is not None:
-            content = row.get("homepage", {}).get("body", {}).get("storage", {}).get("value", "")
-            row["homepage"]["body"]["storage"]["value"] = ConfluenceStream.remove_html_tags(content) 
+        if row.get("body", {}).get("storage", {}).get("value") is not None:
+            content = row.get("body", {}).get("storage", {}).get("value", "")
+            row["body"]["storage"]["value"] = ConfluenceStream.remove_html_tags(content) 
           
         return row

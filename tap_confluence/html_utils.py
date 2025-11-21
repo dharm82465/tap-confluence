@@ -2,9 +2,9 @@ import bs4
 from bs4 import Comment
 
 def simplify_html(soup, keep_attr=False):
-    for tag in soup.find_all():
-        if tag.name.startswith(("ac:", "ri:", "layout", "layout-cell", "structured-macro")):
-            tag.unwrap()
+    # for tag in soup.find_all():
+    #     if tag.name.startswith(("ac:", "ri:", "layout", "layout-cell", "structured-macro")):
+    #         tag.unwrap()
 
     for script in soup(["script", "style"]):
         script.decompose()

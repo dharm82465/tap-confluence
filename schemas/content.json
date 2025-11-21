@@ -194,6 +194,22 @@
           "type": "string"
         }
       }
+    },
+    "body": {
+      "type": "object",
+      "properties": {
+        "storage": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": ["string", "null"]
+            },
+            "representation": {
+              "type": ["string", "null"]
+            }
+          }
+        }
+      }
     }
   }
 }
