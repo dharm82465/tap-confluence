@@ -25,7 +25,7 @@ dependencies = [
     "singer-sdk~=0.53.2",
     "requests~=2.32.3",
     "typing-extensions>=4.5.0; python_version < '3.13'",
-    "bs4",
+    "docling"
 ]
 
 [project.optional-dependencies]

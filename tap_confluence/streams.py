@@ -2,19 +2,12 @@
 
 from __future__ import annotations
 
-from singer_sdk import typing as th  # JSON Schema typing helpers
-# from singer_sdk import SchemaDirectory, StreamSchema
-
 from tap_confluence.client import ConfluenceStream
-
-from pathlib import Path
-# import abc
-
-# TODO: - Override `UsersStream` and `GroupStream` with your own stream definition.
-#       - Copy-paste as many times as needed to create multiple stream types.
 
 
 class ContentStream(ConfluenceStream):
+    """Stream for retrieving content from Confluence."""
+
     name = "content"
     primary_keys = ["id"]
 

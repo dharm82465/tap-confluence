@@ -192,6 +192,9 @@
         },
         "webui": {
           "type": "string"
+        },
+        "download": {
+          "type": "string"
         }
       }
     },
@@ -210,6 +213,10 @@
           }
         }
       }
-    }
+    },
+    "_modified_time": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    } 
   }
 }

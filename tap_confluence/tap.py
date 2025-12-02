@@ -20,41 +20,50 @@ STREAM_TYPES = [
     ContentStream,
 ]
 
+
 class TapConfluence(Tap):
     """Singer tap for Confluence."""
 
     name = "tap-confluence"
 
-    # TODO: Update this section with the actual config values you expect:
     config_jsonschema = th.PropertiesList(
         th.Property(
             "auth_token",
             th.StringType(nullable=False),
-            required=True,
             secret=True,  # Flag config as protected.
             title="Auth Token",
             description="The token to authenticate against the API service",
         ),
         th.Property(
-            "api_url",
+            "base_url",
             th.StringType(nullable=False),
-            title="API URL",
+            required=True,
+            title="BASE URL",
             default="https://api.mysample.com",
-            description="The url for the API service",
+            description="Confluence instance base URL",
         ),
         th.Property(
-            "space_key",
-            th.StringType(nullable=True),
-            description="The space key to sync",
+            "space_keys",
+            th.ArrayType(th.StringType, nullable=True),
+            title="SPACE KEY",
+            description="Space keys to sync",
         ),
         th.Property(
-            "content_type",
-            th.StringType(nullable=True),
-            description="The content type to sync (either page or blogpost)",
+            "content_types",
+            th.ArrayType(th.StringType, nullable=True),
+            title="CONTENT TYPE",
+            description="possible values are page, blogpost, comment, attachment",
+        ),
+        th.Property(
+            "file_extensions",
+            th.ArrayType(th.StringType, nullable=True),
+            title="FILE EXTENSIONS",
+            description="file extensions for attachments, e.g., pdf, docx, pptx",
         ),
         th.Property(
             "start_date",
             th.DateTimeType(nullable=True),
+            title="START DATE",
             description="The earliest record date to sync",
         ),
     ).to_dict()
@@ -66,11 +75,8 @@ class TapConfluence(Tap):
         Returns:
             A list of discovered streams.
         """
-        # return [
-        #     streams.GroupsStream(self),
-        #     streams.UsersStream(self),
-        # ]
         return [stream(tap=self) for stream in STREAM_TYPES]
+
 
 if __name__ == "__main__":
     TapConfluence.cli()

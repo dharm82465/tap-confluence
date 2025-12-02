@@ -2,22 +2,19 @@
 
 from __future__ import annotations
 
-import decimal
+import os
 import sys
-from typing import TYPE_CHECKING, Any, ClassVar
-import re
-from html import unescape
+from datetime import datetime
+from typing import TYPE_CHECKING
+from urllib.parse import parse_qsl
+
+from docling.document_converter import DocumentConverter, InputFormat
 from singer_sdk import SchemaDirectory, StreamSchema
 from singer_sdk.authenticators import BearerTokenAuthenticator
-from singer_sdk.helpers.jsonpath import extract_jsonpath
-from singer_sdk.pagination import BaseHATEOASPaginator
 from singer_sdk.streams import RESTStream
 
-from tap_confluence import schemas
-from tap_confluence.html_utils import simplify_html
-from typing import Any, Dict, Iterable, List
-from urllib.parse import parse_qsl
-from bs4 import BeautifulSoup
+from tap_confluence.attachment import AttachmentFetcher
+from tap_confluence.paginator import NextPageTokenPaginator
 
 if sys.version_info >= (3, 12):
     from typing import override
@@ -25,31 +22,23 @@ else:
     from typing_extensions import override
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Any, ClassVar, Iterable
 
     import requests
     from singer_sdk.helpers.types import Context
+    from singer_sdk.pagination import BaseHATEOASPaginator
+    from singer_sdk.tap_base import Tap
+    from singer_sdk.typing import Schema
 
-
-# TODO: Delete this is if not using json files for schema definition
 SCHEMAS_DIR = SchemaDirectory("./schemas")
 
-
-class NextPageTokenPaginator(BaseHATEOASPaginator):
-    def get_next_url(self, response):
-        links = response.json().get("_links")
-        next = links.get('next')
-        if not next:
-            return None
-        next_url = f"{links.get('base')}{next}"
-        return next_url
 
 class ConfluenceStream(RESTStream):
     """Confluence stream class."""
 
     path = "/content/search"
     limit: int = 10
-    expand: List[str] = []
+    expand: list[str] = []
 
     # Update this value if necessary or override `parse_response`.
     records_jsonpath = "$[*]"
@@ -59,12 +48,32 @@ class ConfluenceStream(RESTStream):
 
     schema: ClassVar[StreamSchema] = StreamSchema(SCHEMAS_DIR)
 
+    replication_method = "INCREMENTAL"
+    replication_key = "_modified_time"
+    primary_keys = ["id"]
+
+    def __init__(
+        self,
+        tap: Tap,
+        name: str | None = None,
+        schema: dict[str, Any] | Schema | None = None,
+        path: str | None = None,
+        *,
+        http_method: str | None = None,
+    ) -> None:
+        """Initialize the Confluence stream with document converter and attachment fetcher."""
+        super().__init__(tap, name, schema, path, http_method=http_method)
+        self.converter = DocumentConverter()
+        self.attachment_fetcher = AttachmentFetcher(
+            converter=self.converter,
+            token=self.config.get("auth_token") or os.getenv("AUTH_TOKEN"),
+        )
+
     @override
     @property
     def url_base(self) -> str:
         """Return the API URL root, configurable via tap settings."""
-        # TODO: hardcode a value here, or retrieve it from self.config
-        return self.config.get("api_url", "")
+        return f"{self.config.get('base_url') or os.getenv('BASE_URL')}/rest/api"
 
     @override
     @property
@@ -74,7 +83,9 @@ class ConfluenceStream(RESTStream):
         Returns:
             An authenticator instance.
         """
-        return BearerTokenAuthenticator(token=self.config.get("auth_token", ""))
+        return BearerTokenAuthenticator(
+            token=self.config.get("auth_token") or os.getenv("AUTH_TOKEN")
+        )
 
     @property
     @override
@@ -84,12 +95,10 @@ class ConfluenceStream(RESTStream):
         Returns:
             A dictionary of HTTP headers.
         """
-        # If not using an authenticator, you may also provide inline auth headers:
-        # headers["Private-Token"] = self.config.get("auth_token")  # noqa: ERA001
         return {}
 
     @override
-    def get_new_paginator(self) -> BaseAPIPaginator | None:
+    def get_new_paginator(self) -> BaseHATEOASPaginator | None:
         """Create a new pagination helper instance.
 
         If the source API can make use of the `next_page_token_jsonpath`
@@ -104,6 +113,27 @@ class ConfluenceStream(RESTStream):
             is not supported.
         """
         return NextPageTokenPaginator()
+
+    def __get_list_from_config_or_env(
+        self,
+        config_key: str,
+        env_key: str,
+    ) -> list[str]:
+        """Get a list of strings from config or environment variable.
+
+        Args:
+            config_key: The configuration key to look for.
+            env_key: The environment variable key to look for.
+        Returns:
+            A list of strings.
+        """
+        env_value = os.getenv(env_key)
+        if env_value:
+            return [item.strip() for item in env_value.split(",")]
+        config_value = self.config.get(config_key)
+        if config_value:
+            return config_value
+        return []
 
     @override
     def get_url_params(
@@ -120,40 +150,49 @@ class ConfluenceStream(RESTStream):
         Returns:
             A dictionary of URL query parameters.
         """
+        self.logger.info(
+            "Replication Key Value: %s",
+            self.get_starting_replication_key_value(context),
+        )
         cql = []
-        if self.config.get("space_key"):
-            cql.insert(0, f"space={self.config.get('space_key')}")
-        if self.config.get("content_type"):
-            cql.insert(0, f"type={self.config.get('content_type')}")
-        if self.config.get("start_date"):
-            cql.insert(0, f"lastmodified >= '{self.config.get('start_date')}'")    
+        space_keys = self.__get_list_from_config_or_env("space_keys", "SPACE_KEYS")
+        if len(space_keys) > 0:
+            cql.append("space in (" + ",".join(space_keys) + ")")
+        if self.get_starting_replication_key_value(context):
+            start_date = self.get_starting_replication_key_value(context)
+            cql.append(f"lastmodified > '{start_date}'")
+        elif self.config.get("start_date"):
+            start_date = self.config.get("start_date")
+            cql.append(f"lastmodified > '{start_date}'")
+
+        content_types = self.__get_list_from_config_or_env("content_types", "CONTENT_TYPES")
+        file_extensions = self.__get_list_from_config_or_env("file_extensions", "FILE_EXTENSIONS")
+        if len(content_types) > 0 and len(file_extensions) == 0:
+            cql.append("type in (" + ",".join(content_types) + ")")
+        elif len(content_types) == 0 and len(file_extensions) > 0:
+            query = '((type != "attachment") OR (type = attachment AND ('
+            query += " OR ".join(
+                [f'sitesearch ~ "file.extension:{ext}"' for ext in file_extensions]
+            )
+            query += ")))"
+            cql.append(query)
+        elif len(content_types) > 0 and len(file_extensions) > 0:
+            content_types = [x for x in content_types if x != "attachment"]
+            query = "((type in (" + ",".join(content_types) + ")) OR ("
+            query += "type = attachment AND ("
+            query += " OR ".join(
+                [f'sitesearch ~ "file.extension:{ext}"' for ext in file_extensions]
+            )
+            query += ")))"
+            cql.append(query)
         params = {
             "expand": ",".join(self.expand),
-            "cql": f'{" AND ".join(cql)} ORDER BY lastmodified'
+            "cql": f"{' AND '.join(cql)} ORDER BY lastmodified",
         }
+        self.logger.info("CQL: %s ORDER BY lastmodified", " AND ".join(cql))
         if next_page_token:
             params.update(parse_qsl(next_page_token.query))
         return params
-
-    @override
-    def prepare_request_payload(
-        self,
-        context: Context | None,
-        next_page_token: Any | None,
-    ) -> dict | None:
-        """Prepare the data payload for the REST API request.
-
-        By default, no payload will be sent (return None).
-
-        Args:
-            context: The stream context.
-            next_page_token: The next page index or value.
-
-        Returns:
-            A dictionary with the JSON body for a POST requests.
-        """
-        # TODO: Delete this method if no payload is required. (Most REST APIs.)
-        return None
 
     @override
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
@@ -165,17 +204,8 @@ class ConfluenceStream(RESTStream):
         Yields:
             Each record from the source.
         """
-        # TODO: Parse response body and return a set of records.
         resp_json = response.json()
-        for row in resp_json["results"]:
-            yield row
-
-    @staticmethod
-    def remove_html_tags(html: str) -> str:
-        """Remove HTML tags and decode HTML entities."""
-        if not html:
-            return html
-        return simplify_html(BeautifulSoup(html, "html.parser"))
+        yield from resp_json["results"]
 
     @override
     def post_process(
@@ -195,10 +225,28 @@ class ConfluenceStream(RESTStream):
         Returns:
             The updated record dictionary, or ``None`` to skip the record.
         """
-        # TODO: Delete this method if not needed.
+        row["_modified_time"] = datetime.fromisoformat(row.get("version").get("when")).strftime(
+            "%Y-%m-%d %H:%M"
+        )
+        content_type = row.get("type")
+        if content_type == "attachment":
+            path = row.get("_links", {}).get("download")
+            if not path:
+                return None
+            download_url = f"{self.config.get('base_url')}{path}"
+            title = row.get("title", "")
+            markdown = self.attachment_fetcher.fetch_attachment(url=download_url, title=title)
+            if markdown is None or len(markdown) == 0:
+                return None
+            row["body"]["storage"]["value"] = markdown
+            return row
 
-        if row.get("body", {}).get("storage", {}).get("value") is not None:
-            content = row.get("body", {}).get("storage", {}).get("value", "")
-            row["body"]["storage"]["value"] = ConfluenceStream.remove_html_tags(content) 
-          
+        content = row.get("body", {}).get("storage", {}).get("value", "")
+        if len(content) > 0:
+            result = self.converter.convert_string(content, InputFormat.HTML)
+            markdown = result.document.export_to_markdown()
+            if len(markdown) > 0:
+                row["body"]["storage"]["value"] = markdown
+            else:
+                return None
         return row
