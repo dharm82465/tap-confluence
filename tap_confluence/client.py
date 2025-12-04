@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl
 
@@ -27,10 +28,9 @@ if TYPE_CHECKING:
     import requests
     from singer_sdk.helpers.types import Context
     from singer_sdk.pagination import BaseHATEOASPaginator
-    from singer_sdk.tap_base import Tap
     from singer_sdk.typing import Schema
 
-SCHEMAS_DIR = SchemaDirectory(__file__ + "/schemas")
+SCHEMAS_DIR = SchemaDirectory(Path(__file__).parent / "schemas")
 
 
 class ConfluenceStream(RESTStream):
