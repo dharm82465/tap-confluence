@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from singer_sdk.tap_base import Tap
     from singer_sdk.typing import Schema
 
-SCHEMAS_DIR = SchemaDirectory("./schemas")
+SCHEMAS_DIR = SchemaDirectory(__file__ + "/schemas")
 
 
 class ConfluenceStream(RESTStream):
