@@ -66,14 +66,14 @@ class ConfluenceStream(RESTStream):
         self.converter = DocumentConverter()
         self.attachment_fetcher = AttachmentFetcher(
             converter=self.converter,
-            token=self.config.get("auth_token") or os.getenv("AUTH_TOKEN"),
+            token=self.config.get("auth_token") or os.getenv("CONFLUENCE_AUTH_TOKEN"),
         )
 
     @override
     @property
     def url_base(self) -> str:
         """Return the API URL root, configurable via tap settings."""
-        return f"{self.config.get('base_url') or os.getenv('BASE_URL')}/rest/api"
+        return f"{self.config.get('base_url') or os.getenv('CONFLUENCE_BASE_URL')}/rest/api"
 
     @override
     @property
@@ -84,7 +84,7 @@ class ConfluenceStream(RESTStream):
             An authenticator instance.
         """
         return BearerTokenAuthenticator(
-            token=self.config.get("auth_token") or os.getenv("AUTH_TOKEN")
+            token=self.config.get("auth_token") or os.getenv("CONFLUENCE_AUTH_TOKEN")
         )
 
     @property
@@ -155,7 +155,7 @@ class ConfluenceStream(RESTStream):
             self.get_starting_replication_key_value(context),
         )
         cql = []
-        space_keys = self.__get_list_from_config_or_env("space_keys", "SPACE_KEYS")
+        space_keys = self.__get_list_from_config_or_env("space_keys", "CONFLUENCE_SPACE_KEYS")
         if len(space_keys) > 0:
             cql.append("space in (" + ",".join(space_keys) + ")")
         if self.get_starting_replication_key_value(context):
@@ -165,8 +165,12 @@ class ConfluenceStream(RESTStream):
             start_date = self.config.get("start_date")
             cql.append(f"lastmodified > '{start_date}'")
 
-        content_types = self.__get_list_from_config_or_env("content_types", "CONTENT_TYPES")
-        file_extensions = self.__get_list_from_config_or_env("file_extensions", "FILE_EXTENSIONS")
+        content_types = self.__get_list_from_config_or_env(
+            "content_types", "CONFLUENCE_CONTENT_TYPES"
+        )
+        file_extensions = self.__get_list_from_config_or_env(
+            "file_extensions", "CONFLUENCE_FILE_EXTENSIONS"
+        )
         if len(content_types) > 0 and len(file_extensions) == 0:
             cql.append("type in (" + ",".join(content_types) + ")")
         elif len(content_types) == 0 and len(file_extensions) > 0:
